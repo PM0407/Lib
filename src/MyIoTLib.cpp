@@ -1,5 +1,4 @@
 #include "MyIotLib.h"
-#include "config.h"  // Include the config file
 #include <ESP8266WiFi.h>
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>

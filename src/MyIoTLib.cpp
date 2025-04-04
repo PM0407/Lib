@@ -68,36 +68,56 @@ ITdG8ClyZM+fAp0MmPZegCn5ineatN4Z7mNWBF1nnaWkMBWpcAoFuyluChr9Y59Z
 -----END CERTIFICATE-----
 )EOF";
 MyIoTLib::MyIoTLib() : _mqttClient(_wifiClient) {}
-void MyIoTLib::fetchMqttCredentials(const char* authToken) {
+String getMqttEndpointFromConfig(const char* authToken) {
     HTTPClient http;
-    WiFiClientSecure client;  // Use WiFiClientSecure instead of WiFiClient
-
-    client.setInsecure();  // Allows HTTPS connection without certificates
-
-    http.begin(client, "https://backen-58yt.onrender.com/api/getMqttCredentials");
+    WiFiClientSecure client;
+    client.setInsecure();
+    
+    http.begin(client, "https://backen-58yt.onrender.com/config"); // Change to your public config file
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", String("Bearer ") + authToken); 
+    http.addHeader("Authorization", String("Bearer ") + authToken);
+    int httpCode = http.GET();
+    String response = http.getString();
+    http.end();
+
+    if (httpCode == 200) {
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, response);
+        if (!error) {
+            return doc["mqtt_credentials_url"].as<String>();
+        }
+    }
+    Serial.println("Failed to fetch config or parse JSON.");
+    return "";
+}
+void MyIoTLib::fetchMqttCredentials(const char* authToken) {
+    String endpoint = getMqttEndpointFromConfig(authToken);
+    if (endpoint == "") return;
+
+    HTTPClient http;
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    http.begin(client, endpoint);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", String("Bearer ") + authToken);
 
     int httpCode = http.GET();
     String response = http.getString();
     http.end();
 
-
     if (httpCode == 200) {
         StaticJsonDocument<256> doc;
         DeserializationError error = deserializeJson(doc, response);
-        
-        if (error) {
+
+        if (!error) {
+            _mqttServer = doc["mqttServer"].as<String>();
+            _mqttPort = doc["mqttPort"].as<int>();
+            _mqttUser = doc["mqttUser"].as<String>();
+            _mqttPassword = doc["mqttPassword"].as<String>();
+        } else {
             Serial.println("Failed to parse JSON response.");
-            return;
         }
-
-        _mqttServer = doc["mqttServer"].as<String>();
-        _mqttPort = doc["mqttPort"].as<int>();
-        _mqttUser = doc["mqttUser"].as<String>();
-        _mqttPassword = doc["mqttPassword"].as<String>();
-
-
     } else {
         Serial.print("Failed to fetch MQTT credentials. HTTP Code: ");
         Serial.println(httpCode);
@@ -195,8 +215,8 @@ bool MyIoTLib::validateTopic(const char* projectId, const char* labelName, const
         Serial.println("Validation Successful");
         return true; 
     } else {
-        Serial.print("Validation Failed! HTTP Code: ");
-        Serial.println(httpCode);
+        Serial.print("Validation Failed!  ");
+
         
         if (httpCode == 400) {
             Serial.println("Error: The request was sent to an HTTPS port instead of HTTP.");
@@ -204,7 +224,6 @@ bool MyIoTLib::validateTopic(const char* projectId, const char* labelName, const
             Serial.println("Error: No response received. Check internet connection or server URL.");
         }
 
-        Serial.println("Response: " + response);
         return false;
     }
 }

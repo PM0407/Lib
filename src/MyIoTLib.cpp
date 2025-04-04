@@ -82,7 +82,6 @@ void MyIoTLib::fetchMqttCredentials(const char* authToken) {
     String response = http.getString();
     http.end();
 
-    Serial.println("MQTT Credentials Response: " + response);
 
     if (httpCode == 200) {
         StaticJsonDocument<256> doc;
@@ -190,10 +189,10 @@ bool MyIoTLib::validateTopic(const char* projectId, const char* labelName, const
     String response = http.getString();
     http.end();
 
-    Serial.println("Validation Response: " + response);
+  
 
     if (httpCode == 200) {
-        Serial.println("Topic Validation Successful");
+        Serial.println("Validation Successful");
         return true; 
     } else {
         Serial.print("Validation Failed! HTTP Code: ");

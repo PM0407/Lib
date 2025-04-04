@@ -75,7 +75,7 @@ void MyIoTLib::fetchMqttCredentials(const char* authToken) {
 
     client.setInsecure();  // Allows HTTPS connection without certificates
 
-    http.begin(client, MQTT_CREDENTIALS_URL);
+    http.begin(client, "https://backen-58yt.onrender.com/api/getMqttCredentials");
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Authorization", String("Bearer ") + authToken); 
 
@@ -183,7 +183,7 @@ bool MyIoTLib::validateTopic(const char* projectId, const char* labelName, const
 
     String payload = "{\"projectId\": \"" + String(projectId) + "\", \"labelName\": \"" + String(labelName) + "\"}";
 
-    http.begin(client, VALIDATE_TOPIC_URL);
+    http.begin(client, "https://backen-58yt.onrender.com/api/validateTopic");
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Authorization", String("Bearer ") + authToken);
 

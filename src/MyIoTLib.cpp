@@ -69,15 +69,15 @@ ITdG8ClyZM+fAp0MmPZegCn5ineatN4Z7mNWBF1nnaWkMBWpcAoFuyluChr9Y59Z
 -----END CERTIFICATE-----
 )EOF";
 MyIoTLib::MyIoTLib() : _mqttClient(_wifiClient) {}
-
 void MyIoTLib::fetchMqttCredentials(const char* authToken) {
     HTTPClient http;
-    WiFiClientSecure client;
-    BearSSL::X509List cert(ca_cert1);
-    client.setTrustAnchors(&cert);  // Set SSL certificate
-    http.begin(client,MQTT_CREDENTIALS_URL);
+    WiFiClientSecure client;  // Use WiFiClientSecure instead of WiFiClient
+
+    client.setInsecure();  // Allows HTTPS connection without certificates
+
+    http.begin(client, MQTT_CREDENTIALS_URL);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", String("Bearer ") + authToken); // Use provided auth token
+    http.addHeader("Authorization", String("Bearer ") + authToken); 
 
     int httpCode = http.GET();
     String response = http.getString();
@@ -87,15 +87,25 @@ void MyIoTLib::fetchMqttCredentials(const char* authToken) {
 
     if (httpCode == 200) {
         StaticJsonDocument<256> doc;
-        deserializeJson(doc, response);
+        DeserializationError error = deserializeJson(doc, response);
         
+        if (error) {
+            Serial.println("Failed to parse JSON response.");
+            return;
+        }
+
         _mqttServer = doc["mqttServer"].as<String>();
         _mqttPort = doc["mqttPort"].as<int>();
         _mqttUser = doc["mqttUser"].as<String>();
         _mqttPassword = doc["mqttPassword"].as<String>();
 
+
+    } else {
+        Serial.print("Failed to fetch MQTT credentials. HTTP Code: ");
+        Serial.println(httpCode);
     }
 }
+
 
 void MyIoTLib::begin(const char* ssid, const char* password, const char* authToken) {
     Serial.print("Connecting to Wi-Fi...");
@@ -107,8 +117,7 @@ void MyIoTLib::begin(const char* ssid, const char* password, const char* authTok
     Serial.println("Connected to Wi-Fi");
 
     syncTime();
-    fetchMqttCredentials(authToken); // Pass authToken when fetching credentials
-
+    fetchMqttCredentials(authToken); 
     BearSSL::X509List* caCertList = new BearSSL::X509List(ca_cert);
     _wifiClient.setTrustAnchors(caCertList);
 
@@ -130,23 +139,34 @@ void MyIoTLib::setCallback(void (*callback)(char*, uint8_t*, unsigned int)) {
     _mqttClient.setCallback(callback);
 }
 
-void MyIoTLib::send(const char* projectId, const char* labelName, const char* payload,const char* authToken) { 
+void MyIoTLib::publishToDynamicTopic(const char* projectId, const char* labelName, const char* payload,const char* authToken) { 
     if (!_mqttClient.connected()) {
         reconnect(projectId, labelName,authToken);
     }
 
     String topic = "mqtt-subscription-mqttjs_" + String(projectId) + "_" + String(labelName) + "_qos1";
     
- 
+    if (_mqttClient.publish(topic.c_str(), payload)) {
+        Serial.print("Published to topic: ");
+        Serial.print("Message: ");
+        Serial.println(payload);
+    } else {
+        Serial.println("Publishing failed!");
+    }
 }
 
-void MyIoTLib::recieve(const char* projectId, const char* labelName,const char* authToken) {    
+void MyIoTLib::subscribeToDynamicTopic(const char* projectId, const char* labelName,const char* authToken) {    
     if (!_mqttClient.connected()) {
         reconnect(projectId, labelName,authToken);
     }
 
     String topic = "null_" + String(projectId) + "_" + String(labelName);
-    
+    if (_mqttClient.subscribe(topic.c_str())) {
+        Serial.print("Subscribed to topic: ");
+
+    } else {
+        Serial.println("Subscription failed!");
+    }
 }
 
 void MyIoTLib::loop(const char* projectId, const char* labelName,const char* authToken) {
@@ -155,24 +175,23 @@ void MyIoTLib::loop(const char* projectId, const char* labelName,const char* aut
     }
     _mqttClient.loop();
 }
-
 bool MyIoTLib::validateTopic(const char* projectId, const char* labelName, const char* authToken) {
     HTTPClient http;
-    WiFiClientSecure client;
-    BearSSL::X509List cert(ca_cert1);
-    client.setTrustAnchors(&cert);  // Set SSL certificate
+    WiFiClientSecure client;  // Use Secure Client
 
-    
+    client.setInsecure();  // Allows connection without certificates
+
     String payload = "{\"projectId\": \"" + String(projectId) + "\", \"labelName\": \"" + String(labelName) + "\"}";
 
-    http.begin(client,VALIDATE_TOPIC_URL);
+    http.begin(client, VALIDATE_TOPIC_URL);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", String("Bearer ") + authToken); 
+    http.addHeader("Authorization", String("Bearer ") + authToken);
 
     int httpCode = http.POST(payload);
     String response = http.getString();
     http.end();
 
+    Serial.println("Validation Response: " + response);
 
     if (httpCode == 200) {
         Serial.println("Topic Validation Successful");
@@ -180,10 +199,19 @@ bool MyIoTLib::validateTopic(const char* projectId, const char* labelName, const
     } else {
         Serial.print("Validation Failed! HTTP Code: ");
         Serial.println(httpCode);
+        
+        if (httpCode == 400) {
+            Serial.println("Error: The request was sent to an HTTPS port instead of HTTP.");
+        } else if (httpCode == -1) {
+            Serial.println("Error: No response received. Check internet connection or server URL.");
+        }
+
         Serial.println("Response: " + response);
         return false;
     }
 }
+
+
 
 void MyIoTLib::reconnect(const char* projectId, const char* labelName, const char* authToken) {
     if (!validateTopic(projectId, labelName, authToken)) {
@@ -192,10 +220,9 @@ void MyIoTLib::reconnect(const char* projectId, const char* labelName, const cha
     }
 
     while (!_mqttClient.connected()) {
-        Serial.print("Connecting to MQTT...");
         String clientId = "ESP8266Client-" + String(WiFi.macAddress());
         if (_mqttClient.connect(clientId.c_str(), _mqttUser.c_str(), _mqttPassword.c_str())) {
-            Serial.println("Connected to MQTT broker");
+            Serial.println("Connected with corex");
         } else {
             Serial.print("Failed to connect, rc=");
             Serial.print(_mqttClient.state());
